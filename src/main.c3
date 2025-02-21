@@ -1,7 +1,7 @@
 module c3_server;
 import std::io;
 import std::net;
-import async_server;
+import asionet;
 
 
 fn void test_process(Task t)

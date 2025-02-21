@@ -1,68 +1,9 @@
-module async_server::aserv;
+module asionet::server;
 import std::io;
 import std::net;
 import std::time;
 import std::collections;
 
-
-fn void! read_sock(Socket *sock, char[] *buffer)
-{
-    ulong! chars;
-    char[4096] in_buffer;
-    bool keep_reading = true;
-    DString out_str;
-    // out_str.new_init();
-    out_str.new_init((*buffer).len*2);
-    defer {
-        if (out_str.len() > 0) *buffer = out_str.str_view();
-        out_str.free();
-    }
-
-    while (keep_reading)
-    {
-        chars = sock.read(&in_buffer)!;
-        if (try chars)
-        {
-            if (chars > 0)
-            {
-                // io::printn(buffer.len);
-                if (out_str.len() == 0 && buffer.len > 0) out_str.append_chars((String)*buffer);
-                out_str.append_chars((String)in_buffer[..chars]);
-            }
-            else
-            {
-                keep_reading = false;
-            }
-        }
-    }
-}
-
-fn void! write_sock(Socket *sock, char[] *buffer)
-{
-    ulong! chars;
-    bool keep_writing = true;
-
-    while (keep_writing)
-    {
-        chars = sock.write(*buffer)!;
-        if (try chars)
-        {
-            if (chars > 0) *buffer = (*buffer)[chars..];
-            keep_writing = buffer.len > 0 && chars > 0;
-        }
-    }
-}
-
-interface Task
-{
-    fn void process(Server*);
-    fn bool is_done();
-    fn Poll get_poll();
-    fn void free();
-}
-
-def AssociatedFunc = fn void (Task);
-def UserFnMap = HashMap(<String, AssociatedFunc>);
 
 struct HttpTask (Task)
 {
@@ -81,12 +22,13 @@ struct HttpTask (Task)
     }
 }
 
-fn void HttpTask.process(&self, Server *server) @dynamic
+fn void HttpTask.process(&self, any... proc_args) @dynamic
 {
+    Server *server = anycast(proc_args[0], Server)!!;
     switch (self.stage)
     {
         case 0:
-            if (catch excuse = read_sock(self.sock, &self.buffer))
+            if (catch excuse = asionet::read_sock(self.sock, &self.buffer))
             {
                 if (excuse != IoError.WOULD_BLOCK)
                 {
@@ -126,7 +68,7 @@ fn void HttpTask.process(&self, Server *server) @dynamic
         case 1:
             self.proc.func((Task)self);
         case 2:
-            if (catch excuse = write_sock(self.sock, &self.buffer))
+            if (catch excuse = asionet::write_sock(self.sock, &self.buffer))
             {
                 if (excuse != IoError.WOULD_BLOCK)
                 {
@@ -181,13 +123,19 @@ fn void HttpTask.free(&self) @dynamic
     mem::free(self);
 }
 
+fn String HttpTask.name(&self) @dynamic
+{
+    return "httptask";
+}
+
 struct AcceptTask (Task)
 {
     TcpServerSocket *sock;
 }
 
-fn void AcceptTask.process(&self, Server *server) @dynamic
+fn void AcceptTask.process(&self, any... proc_args) @dynamic
 {
+    Server *server = anycast(proc_args[0], Server)!!;
     TcpSocket *socket = mem::new(TcpSocket);
     socket.ai_addrlen = socket.ai_addr_storage.len;
     socket.sock = os::accept(self.sock.sock, (SockAddrPtr)&socket.ai_addr_storage, &socket.ai_addrlen);
@@ -227,11 +175,18 @@ fn void AcceptTask.free(&self) @dynamic
     mem::free(self);
 }
 
+fn String AcceptTask.name(&self) @dynamic
+{
+    return "accepttask";
+}
+
+def UserFnMap = HashMap(<String, AssociatedFunc>);
+def AssociatedFunc = fn void (Task);
+
 struct Server
 {
-    List(<Task>) tasks;
+    TaskLoop tasks;
     UserFnMap user_funcs;
-    
 }
 
 fn Server* Server.init(&self)
@@ -249,53 +204,8 @@ fn void Server.listen_to(&self, TcpServerSocket *server_sock)
     self.tasks.push((Task)at);
 }
 
-fn void Server.poll_tasks(&self)
-{
-    List(<Poll>) polling;
-    defer polling.free();
-    foreach (&task : self.tasks)
-    {
-        polling.push(task.get_poll());
-    }
-    ulong check = 0;
-    ulong evs = net::poll(polling.array_view(), time::SEC)!!;
-    if (evs > 0)
-    {
-        foreach (idx, &poll : polling)
-        {
-            if (poll.socket != -1 && (ushort)poll.revents & (ushort)poll.events)
-            {
-                check++;
-                self.tasks[idx].process(self);
-            }
-            if (check == evs) break;
-        }
-    }
-}
-
-fn void Server.clear_done(&self)
-{
-    ulong i = 1;  // skip accept task
-    while (i<self.tasks.size)
-    {
-        if (self.tasks[i].is_done())
-        {
-            // io::printn("IS DONE");
-            self.tasks[i].free();
-            self.tasks.remove_at(i);
-        }
-        else
-        {
-            i++;
-        }
-    }
-}
-
 fn void Server.run_forever(&self)
 {
-    while (self.tasks.size > 0)
-    {
-        self.poll_tasks();
-        self.clear_done();
-    }
+    // watch for signals in future
+    self.tasks.loop_forever(time::SEC, self);
 }
