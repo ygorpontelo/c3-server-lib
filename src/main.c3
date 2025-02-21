@@ -13,7 +13,8 @@ fn void test_process(Task t)
     //         t.buffer = "HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: 5\nAccept-Ranges: bytes\nConnection: close\n\nPong!";
     //         t.tt = TaskType.WRITE;
     // }
-    ht.buffer = "HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: 5\nAccept-Ranges: bytes\nConnection: close\n\nPong!";
+    ht.buffer.clear();
+    ht.buffer.append_chars("HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: 5\nAccept-Ranges: bytes\nConnection: close\n\nPong!");
     ht.stage = 2;
 }
 

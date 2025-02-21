@@ -10,7 +10,7 @@ struct HttpTask (Task)
     Socket *sock;  // tcp connection
     bool done;
     uint stage;
-    char[] buffer;
+    DString buffer;
     void *data;
     Time t_born;
 
@@ -39,7 +39,7 @@ fn void HttpTask.process(&self, any... proc_args) @dynamic
                 }
             }
 
-            String[] parts = ((String)self.buffer).tsplit("\r\n\r\n");
+            String[] parts = self.buffer.str_view().tsplit("\r\n\r\n");
             String[] parts2 = parts[0].tsplit("\r\n");
 
             // io::printn(parts2);
@@ -77,7 +77,7 @@ fn void HttpTask.process(&self, any... proc_args) @dynamic
                 }
             }
             // if all data was written then set done
-            self.done = self.buffer.len == 0;
+            self.done = self.buffer.len() == 0;
     }
 }
 
@@ -114,9 +114,23 @@ fn bool HttpTask.is_done(&self) @dynamic
     return self.done || time::now().diff_sec(self.t_born) >= 5;
 }
 
+fn HttpTask* HttpTask.new_init(&self, Socket* socket)
+{
+    self.sock=socket;
+    self.done=false;
+    self.stage=0;
+    self.buffer.new_init();
+    self.data=null;
+    self.t_born=time::now();
+    self.proc.sock=null;
+    self.proc.func=null;
+    return self;
+}
+
 fn void HttpTask.free(&self) @dynamic
 {
     self.sock.destroy()!!;
+    self.buffer.free();
     mem::free(self.sock);
     mem::free(self);
 }
@@ -143,15 +157,11 @@ fn void AcceptTask.process(&self, any... proc_args) @dynamic
         socket.sock.set_non_blocking(true)!!;
         // socket.set_reuseaddr(true)!!;
         HttpTask *t = mem::new(HttpTask);
-        t.sock=socket;
-        t.done=false;
-        t.stage=0;
-        t.buffer="";
-        t.data=null;
-        t.t_born=time::now();
-        t.proc.sock=null;
-        t.proc.func=null;
-        server.tasks.push((Task)t);
+        server.tasks.push((Task)t.new_init(socket));
+    }
+    else
+    {
+        mem::free(socket);
     }
 }
 
@@ -170,6 +180,7 @@ fn bool AcceptTask.is_done(&self) @dynamic
 
 fn void AcceptTask.free(&self) @dynamic
 {
+    mem::free(self.sock);
     mem::free(self);
 }
 
