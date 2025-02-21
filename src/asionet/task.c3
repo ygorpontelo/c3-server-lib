@@ -32,7 +32,10 @@ fn void TaskLoop.poll_tasks(&self, Duration poll_duration, any... proc_args)
             if (poll.socket != -1 && (ushort)poll.revents & (ushort)poll.events)
             {
                 check++;
-                self.get_ref(idx).process(...proc_args);
+                @pool()
+                {
+                    self.get_ref(idx).process(...proc_args);
+                };
             }
             if (check == evs) break;
         }

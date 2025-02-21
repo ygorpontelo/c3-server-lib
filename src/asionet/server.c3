@@ -39,10 +39,8 @@ fn void HttpTask.process(&self, any... proc_args) @dynamic
                 }
             }
 
-            String[] parts = ((String)self.buffer).split("\r\n\r\n");
-            defer mem::free(parts);
-            String[] parts2 = parts[0].split("\r\n");
-            defer mem::free(parts2);
+            String[] parts = ((String)self.buffer).tsplit("\r\n\r\n");
+            String[] parts2 = parts[0].tsplit("\r\n");
 
             // io::printn(parts2);
             foreach (s : parts2)
@@ -88,7 +86,7 @@ fn Poll HttpTask.get_poll(&self) @dynamic
     Poll poll;
 
     // not io bound yet
-    if (self.stage == 1 && self.proc.sock==null) self.proc.func((Task)self);
+    if (self.stage == 1 && self.proc.sock==null) @pool(){ self.proc.func((Task)self); };
 
     if (self.stage == 1)
     {
