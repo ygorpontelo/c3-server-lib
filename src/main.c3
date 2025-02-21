@@ -4,16 +4,17 @@ import std::net;
 import async_server;
 
 
-fn void test_process(Task *t)
+fn void test_process(Task t)
 {
+    HttpTask *ht = (HttpTask*) t;
     // switch (t.stage)
     // {
     //     case 0:
     //         t.buffer = "HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: 5\nAccept-Ranges: bytes\nConnection: close\n\nPong!";
     //         t.tt = TaskType.WRITE;
     // }
-    t.buffer = "HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: 5\nAccept-Ranges: bytes\nConnection: close\n\nPong!";
-    t.tt = TaskType.WRITE;
+    ht.buffer = "HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: 5\nAccept-Ranges: bytes\nConnection: close\n\nPong!";
+    ht.stage = 2;
 }
 
 fn void main(String[] args)
@@ -23,6 +24,7 @@ fn void main(String[] args)
     // Maybe use a threadpool to distribute more work?
 
     Server server;
+    server.init();
     server.listen_to(&server_sock);
     server.user_funcs["/ping"] = &test_process;
 

@@ -53,28 +53,27 @@ fn void! write_sock(Socket *sock, char[] *buffer)
     }
 }
 
-enum TaskType
+interface Task
 {
-    ACCEPT,
-    READ,
-    PROCESS,
-    WRITE
+    fn void process(Server*);
+    fn bool is_done();
+    fn Poll get_poll();
+    fn void free();
 }
 
-def AssociatedFunc = fn void (Task*);
+def AssociatedFunc = fn void (Task);
 def UserFnMap = HashMap(<String, AssociatedFunc>);
 
-struct Task
+struct HttpTask (Task)
 {
     Socket *sock;  // tcp connection
-    TaskType tt;
     bool done;
     uint stage;
     char[] buffer;
     void *data;
     Time t_born;
 
-    struct process
+    struct proc
     {
         Socket *sock;  // possible other socket to watch for
         PollSubscribes event;
@@ -82,7 +81,112 @@ struct Task
     }
 }
 
-fn void Task.handle_accept(&self, Server *server)
+fn void HttpTask.process(&self, Server *server) @dynamic
+{
+    switch (self.stage)
+    {
+        case 0:
+            if (catch excuse = read_sock(self.sock, &self.buffer))
+            {
+                if (excuse != IoError.WOULD_BLOCK)
+                {
+                    self.done = true;
+                    // log error
+                    io::printfn("Socket error: %s", excuse);
+                    return;
+                }
+            }
+
+            String[] parts = ((String)self.buffer).split("\r\n\r\n");
+            defer mem::free(parts);
+            String[] parts2 = parts[0].split("\r\n");
+            defer mem::free(parts2);
+
+            // io::printn(parts2);
+            foreach (s : parts2)
+            {
+                // parse and check how much data needs reading
+                // save parsing in data
+                if (s.contains("Content-Length: "))
+                {
+                    usz i = s.index_of("Content-Length: ")!! + 16;
+                    long size = s[i..].to_long()!!;
+                    if (parts[1].len < size) return;
+                }
+            }
+
+            // if all expected data is read then set to process
+            // io::printfn("READ BUFFER: %s", (String)self.buffer);
+
+            // io::printn((String)self.buffer);
+            self.stage = 1;
+            // select path function
+            self.proc.func = server.user_funcs["/ping"]!!;
+            // free parsed data
+        case 1:
+            self.proc.func((Task)self);
+        case 2:
+            if (catch excuse = write_sock(self.sock, &self.buffer))
+            {
+                if (excuse != IoError.WOULD_BLOCK)
+                {
+                    self.done = true;
+                    // log error
+                    io::printfn("Socket error: %s", excuse);
+                    return;
+                }
+            }
+            // if all data was written then set done
+            self.done = self.buffer.len == 0;
+    }
+}
+
+fn Poll HttpTask.get_poll(&self) @dynamic
+{
+    Poll poll;
+
+    // not io bound yet
+    if (self.stage == 1 && self.proc.sock==null) self.proc.func((Task)self);
+
+    if (self.stage == 1)
+    {
+        if (self.proc.sock==null)
+        {
+            // ignore task for now
+            poll.socket = -1;
+        }
+        else
+        {
+            poll.socket = self.proc.sock.sock;
+            poll.events = self.proc.event;
+        }
+    }
+    else
+    {
+        poll.socket = self.sock.sock;
+        poll.events = self.stage == 2 ? net::SUBSCRIBE_ANY_WRITE : net::SUBSCRIBE_ANY_READ;
+    }
+    return poll;
+}
+
+fn bool HttpTask.is_done(&self) @dynamic
+{
+    return self.done || time::now().diff_sec(self.t_born) >= 5;
+}
+
+fn void HttpTask.free(&self) @dynamic
+{
+    self.sock.destroy()!!;
+    mem::free(self.sock);
+    mem::free(self);
+}
+
+struct AcceptTask (Task)
+{
+    TcpServerSocket *sock;
+}
+
+fn void AcceptTask.process(&self, Server *server) @dynamic
 {
     TcpSocket *socket = mem::new(TcpSocket);
     socket.ai_addrlen = socket.ai_addr_storage.len;
@@ -92,78 +196,35 @@ fn void Task.handle_accept(&self, Server *server)
         // io::printn("socket is valid!");
         socket.sock.set_non_blocking(true)!!;
         // socket.set_reuseaddr(true)!!;
-        server.tasks.push(
-            {
-                .sock=socket,
-                .tt=TaskType.READ,
-                .done=false,
-                .stage=0,
-                .buffer="",
-                .data=null,
-                .t_born=time::now(),
-                .process.sock=null,
-                .process.func=null,
-            }
-        );
+        HttpTask *t = mem::new(HttpTask);
+        t.sock=socket;
+        t.done=false;
+        t.stage=0;
+        t.buffer="";
+        t.data=null;
+        t.t_born=time::now();
+        t.proc.sock=null;
+        t.proc.func=null;
+        server.tasks.push((Task)t);
     }
 }
 
-fn void Task.handle_read(&self, UserFnMap *user_funcs)
-{   
-    if (catch excuse = read_sock(self.sock, &self.buffer))
-    {
-        if (excuse != IoError.WOULD_BLOCK)
-        {
-            self.done = true;
-            // log error
-            io::printfn("Socket error: %s", excuse);
-            return;
-        }
-    }
-
-    String[] parts = ((String)self.buffer).split("\r\n\r\n");
-    defer mem::free(parts);
-    String[] parts2 = parts[0].split("\r\n");
-    defer mem::free(parts2);
-
-    // io::printn(parts2);
-    foreach (s : parts2)
-    {
-        // parse and check how much data needs reading
-        // save parsing in data
-        if (s.contains("Content-Length: "))
-        {
-            usz i = s.index_of("Content-Length: ")!! + 16;
-            long size = s[i..].to_long()!!;
-            if (parts[1].len < size) return;
-        }
-    }
-
-    // if all expected data is read then set to process
-    // io::printfn("READ BUFFER: %s", (String)self.buffer);
-
-    // io::printn((String)self.buffer);
-    self.tt = TaskType.PROCESS;
-    // select path function
-    self.process.func = (*user_funcs)["/ping"]!!;
-    // free parsed data
-}
-
-fn void Task.handle_write(&self)
+fn Poll AcceptTask.get_poll(&self) @dynamic
 {
-    if (catch excuse = write_sock(self.sock, &self.buffer))
-    {
-        if (excuse != IoError.WOULD_BLOCK)
-        {
-            self.done = true;
-            // log error
-            io::printfn("Socket error: %s", excuse);
-            return;
-        }
-    }
+    Poll poll;
+    poll.socket = self.sock.sock;
+    poll.events = net::SUBSCRIBE_ANY_READ;
+    return poll;
+}
 
-    // if all data was written then set done
-    self.done = self.buffer.len == 0;
+fn bool AcceptTask.is_done(&self) @dynamic
+{
+    return false;
+}
+
+fn void AcceptTask.free(&self) @dynamic
+{
+    mem::free(self);
 }
 
 struct Server
@@ -173,11 +234,19 @@ struct Server
     
 }
 
-fn void Server.listen_to(&self, TcpServerSocket *server_sock)
+fn Server* Server.init(&self)
 {
     self.tasks.new_init();
     self.user_funcs.new_init();
-    self.tasks.push({.sock=server_sock, .tt=TaskType.ACCEPT});
+    return self;
+}
+
+fn void Server.listen_to(&self, TcpServerSocket *server_sock)
+{
+    AcceptTask *at = mem::new(AcceptTask);
+    // AcceptTask at;
+    at.sock = server_sock;
+    self.tasks.push((Task)at);
 }
 
 fn void Server.poll_tasks(&self)
@@ -186,30 +255,7 @@ fn void Server.poll_tasks(&self)
     defer polling.free();
     foreach (&task : self.tasks)
     {
-        // not io bound yet
-        if (task.tt == TaskType.PROCESS && task.process.sock==null) task.process.func(task);
-
-        if (task.tt == TaskType.PROCESS)
-        {
-            if (task.process.sock == null)
-            {
-                // ignore task for now
-                polling.push({.socket=-1});
-            }
-            else
-            {
-                polling.push({.socket=task.process.sock.sock, .events=task.process.event});
-            }
-        }
-        else
-        {
-            polling.push(
-                {
-                    .socket=task.sock.sock,
-                    .events=task.tt == TaskType.WRITE ? net::SUBSCRIBE_ANY_WRITE : net::SUBSCRIBE_ANY_READ,
-                }
-            );
-        }
+        polling.push(task.get_poll());
     }
     ulong check = 0;
     ulong evs = net::poll(polling.array_view(), time::SEC)!!;
@@ -220,18 +266,7 @@ fn void Server.poll_tasks(&self)
             if (poll.socket != -1 && (ushort)poll.revents & (ushort)poll.events)
             {
                 check++;
-                Task *t = &self.tasks[idx];
-                switch (t.tt)
-                {
-                    case TaskType.ACCEPT:
-                        t.handle_accept(self);
-                    case TaskType.READ:
-                        t.handle_read(&self.user_funcs);
-                    case TaskType.PROCESS:
-                        t.process.func(t);
-                    case TaskType.WRITE:
-                        t.handle_write();
-                }
+                self.tasks[idx].process(self);
             }
             if (check == evs) break;
         }
@@ -243,12 +278,10 @@ fn void Server.clear_done(&self)
     ulong i = 1;  // skip accept task
     while (i<self.tasks.size)
     {
-        // timeout of 5s
-        if (self.tasks[i].done || time::now().diff_sec(self.tasks[i].t_born) >= 5)
+        if (self.tasks[i].is_done())
         {
             // io::printn("IS DONE");
-            self.tasks[i].sock.destroy()!!;
-            mem::free(self.tasks[i].sock);
+            self.tasks[i].free();
             self.tasks.remove_at(i);
         }
         else
