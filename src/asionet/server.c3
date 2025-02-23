@@ -61,6 +61,7 @@ struct ParseTask (Task)
 {
     Socket *sock;  // tcp connection
     bool done;
+    bool timeout;
     DString buffer;
     Time t_born;
     ParsedReq *req_info;
@@ -71,6 +72,7 @@ fn ParseTask* ParseTask.new_init(&self, Socket* sock, Server *server)
 {
     self.sock = sock;
     self.done = false;
+    self.timeout = false;
     self.buffer.new_init(256);
     self.t_born=time::now();
     self.req_info = null;
@@ -126,7 +128,8 @@ fn void ParseTask.process(&self) @dynamic
 
 fn bool ParseTask.is_done(&self) @dynamic
 {
-    return self.done || time::now().diff_sec(self.t_born) >= self.server.timeout;
+    self.timeout = time::now().diff_sec(self.t_born) >= self.server.timeout;
+    return self.done || self.timeout;
 }
 
 fn Poll ParseTask.get_poll(&self) @dynamic
@@ -140,6 +143,11 @@ fn Poll ParseTask.get_poll(&self) @dynamic
 fn void ParseTask.free(&self) @dynamic
 {
     self.buffer.free();
+    if (self.timeout)
+    {
+        mem::free(self.sock);
+        if (self.req_info != null) mem::free(self.req_info);
+    }
     mem::free(self);
 }
 
