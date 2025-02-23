@@ -7,22 +7,21 @@ import std::collections;
 
 struct TcpAcceptTask (Task)
 {
-    TcpServerSocket *sock;
+    Server *server;
 }
 
-fn void TcpAcceptTask.process(&self, any... proc_args) @dynamic
+fn void TcpAcceptTask.process(&self) @dynamic
 {
-    Server *server = anycast(proc_args[0], Server)!!;
     TcpSocket *socket = mem::new(TcpSocket);
     socket.ai_addrlen = socket.ai_addr_storage.len;
-    socket.sock = os::accept(self.sock.sock, (SockAddrPtr)&socket.ai_addr_storage, &socket.ai_addrlen);
+    socket.sock = os::accept(self.server.sock.sock, (SockAddrPtr)&socket.ai_addr_storage, &socket.ai_addrlen);
     if (socket.sock.is_valid())
     {
         // io::printn("socket is valid!");
         socket.sock.set_non_blocking(true)!!;
         // socket.set_reuseaddr(true)!!;
         ParseTask *t = mem::new(ParseTask);
-        server.tasks.push((Task)t.new_init(socket));
+        self.server.tasks.push((Task)t.new_init(socket, self.server));
     }
     else
     {
@@ -33,7 +32,7 @@ fn void TcpAcceptTask.process(&self, any... proc_args) @dynamic
 fn Poll TcpAcceptTask.get_poll(&self) @dynamic
 {
     Poll poll;
-    poll.socket = self.sock.sock;
+    poll.socket = self.server.sock.sock;
     poll.events = net::SUBSCRIBE_ANY_READ;
     return poll;
 }
@@ -45,7 +44,6 @@ fn bool TcpAcceptTask.is_done(&self) @dynamic
 
 fn void TcpAcceptTask.free(&self) @dynamic
 {
-    mem::free(self.sock);
     mem::free(self);
 }
 
@@ -66,22 +64,22 @@ struct ParseTask (Task)
     DString buffer;
     Time t_born;
     ParsedReq *req_info;
+    Server *server;
 }
 
-fn ParseTask* ParseTask.new_init(&self, Socket* sock)
+fn ParseTask* ParseTask.new_init(&self, Socket* sock, Server *server)
 {
     self.sock = sock;
     self.done = false;
     self.buffer.new_init(256);
     self.t_born=time::now();
     self.req_info = null;
+    self.server = server;
     return self;
 }
 
-fn void ParseTask.process(&self, any... proc_args) @dynamic
+fn void ParseTask.process(&self) @dynamic
 {
-    Server *server = anycast(proc_args[0], Server)!!;
-
     if (catch excuse = asionet::read_sock(self.sock, &self.buffer))
     {
         if (excuse != IoError.WOULD_BLOCK)
@@ -121,17 +119,14 @@ fn void ParseTask.process(&self, any... proc_args) @dynamic
     // if all expected data is read then format data if any
     // given parsed req, select task (only http for now)
     HttpTask *task = mem::new(HttpTask);
-    task.new_init(self.sock, self.req_info);
-    // select path function
-    task.proc.func = server.user_funcs["/ping"]!!;
-    server.tasks.push((Task)task);
-
+    task.new_init(self.sock, self.req_info, self.server);
+    self.server.tasks.push((Task)task);
     self.done = true;
 }
 
 fn bool ParseTask.is_done(&self) @dynamic
 {
-    return self.done || time::now().diff_sec(self.t_born) >= 5;
+    return self.done || time::now().diff_sec(self.t_born) >= self.server.timeout;
 }
 
 fn Poll ParseTask.get_poll(&self) @dynamic
@@ -159,9 +154,10 @@ struct HttpTask (Task)
     bool done;
     uint stage;
     DString buffer;
-    void *data;
+    void *data;  // possible user data to store
     Time t_born;
     ParsedReq *req_info;
+    Server *server;
 
     struct proc
     {
@@ -171,9 +167,8 @@ struct HttpTask (Task)
     }
 }
 
-fn void HttpTask.process(&self, any... proc_args) @dynamic
+fn void HttpTask.process(&self) @dynamic
 {
-    Server *server = anycast(proc_args[0], Server)!!;
     switch (self.stage)
     {
         case 0:
@@ -224,10 +219,10 @@ fn Poll HttpTask.get_poll(&self) @dynamic
 
 fn bool HttpTask.is_done(&self) @dynamic
 {
-    return self.done || time::now().diff_sec(self.t_born) >= 5;
+    return self.done || time::now().diff_sec(self.t_born) >= self.server.timeout;
 }
 
-fn HttpTask* HttpTask.new_init(&self, Socket* socket, ParsedReq *req)
+fn HttpTask* HttpTask.new_init(&self, Socket* socket, ParsedReq *req, Server *server)
 {
     self.sock=socket;
     self.done=false;
@@ -236,8 +231,10 @@ fn HttpTask* HttpTask.new_init(&self, Socket* socket, ParsedReq *req)
     self.data=null;
     self.t_born=time::now();
     self.req_info=req;
+    self.server=server;
     self.proc.sock=null;
-    self.proc.func=null;
+    // select user function based on parsed req
+    self.proc.func=self.server.user_funcs["/ping"]!!;
     return self;
 }
 
@@ -260,26 +257,31 @@ def AssociatedFunc = fn void (Task);
 
 struct Server
 {
+    TcpServerSocket *sock;
     TaskLoop tasks;
     UserFnMap user_funcs;
+    uint timeout;
 }
 
-fn Server* Server.init(&self)
+fn Server* Server.init(&self, usz initial_task_capacity=1024, uint timeout=5)
 {
-    self.tasks.new_init();
+    self.sock=null;
+    self.timeout=timeout;
+    self.tasks.new_init(initial_task_capacity);
     self.user_funcs.new_init();
     return self;
 }
 
 fn void Server.listen_to(&self, TcpServerSocket *server_sock)
 {
+    self.sock = server_sock;
     TcpAcceptTask *at = mem::new(TcpAcceptTask);
-    at.sock = server_sock;
+    at.server = self;
     self.tasks.push((Task)at);
 }
 
 fn void Server.run_forever(&self)
 {
     // watch for signals in future
-    self.tasks.loop_forever(time::SEC, self);
+    self.tasks.loop_forever(time::SEC);
 }

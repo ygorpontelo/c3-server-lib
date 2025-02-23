@@ -7,7 +7,7 @@ import std::collections;
 interface Task
 {
     fn String name();
-    fn void process(any...);
+    fn void process();
     fn bool is_done();
     fn Poll get_poll();
     fn void free();
@@ -15,7 +15,7 @@ interface Task
 
 def TaskLoop = List(<Task>);
 
-fn void TaskLoop.poll_tasks(&self, Duration poll_duration, any... proc_args)
+fn void TaskLoop.poll_tasks(&self, Duration poll_duration)
 {
     List(<Poll>) polling;
     defer polling.free();
@@ -34,7 +34,7 @@ fn void TaskLoop.poll_tasks(&self, Duration poll_duration, any... proc_args)
                 check++;
                 @pool()
                 {
-                    self.get_ref(idx).process(...proc_args);
+                    self.get_ref(idx).process();
                 };
             }
             if (check == evs) break;
@@ -59,11 +59,11 @@ fn void TaskLoop.clear_done(&self)
     }
 }
 
-fn void TaskLoop.loop_forever(&self, Duration poll_duration, any... proc_args)
+fn void TaskLoop.loop_forever(&self, Duration poll_duration)
 {
     while (self.size > 0)
     {
-        self.poll_tasks(poll_duration, ...proc_args);
+        self.poll_tasks(poll_duration);
         self.clear_done();
     }
 }
