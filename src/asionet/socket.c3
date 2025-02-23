@@ -15,7 +15,7 @@ fn void! read_sock(Socket *sock, DString *buffer)
         {
             if (chars > 0)
             {
-                buffer.append_chars((String)in_buffer[..chars]);
+                buffer.append_chars((String)in_buffer[:chars]);
             }
             else
             {

@@ -7,15 +7,9 @@ import asionet;
 fn void test_process(Task t)
 {
     HttpTask *ht = (HttpTask*) t;
-    // switch (t.stage)
-    // {
-    //     case 0:
-    //         t.buffer = "HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: 5\nAccept-Ranges: bytes\nConnection: close\n\nPong!";
-    //         t.tt = TaskType.WRITE;
-    // }
     ht.buffer.clear();
-    ht.buffer.append_chars("HTTP/1.1 200 OK\nContent-Type: text/html\nContent-Length: 5\nAccept-Ranges: bytes\nConnection: close\n\nPong!");
-    ht.stage = 2;
+    ht.buffer.append_chars("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\nPong!");
+    ht.stage = 0;
 }
 
 fn void main(String[] args)
