@@ -104,9 +104,10 @@ fn void ParseTask.process(&self) @dynamic
 
         foreach (header : headers)
         {
+            header.convert_ascii_to_lower();
             switch
             {
-                case header.contains("Content-Length"):
+                case header.contains("content-length"):
                     req.content_length = header.tsplit(":")[1].trim().to_ulong()!!;
                 default:
                     io::printfn("Unknown header %s", header);
