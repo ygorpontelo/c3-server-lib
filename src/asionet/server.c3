@@ -128,7 +128,7 @@ fn void ParseTask.process(&self) @dynamic
 
 fn bool ParseTask.is_done(&self) @dynamic
 {
-    self.timeout = time::now().diff_sec(self.t_born) >= self.server.timeout;
+    self.timeout = !self.done && time::now().diff_sec(self.t_born) >= self.server.timeout;
     return self.done || self.timeout;
 }
 
