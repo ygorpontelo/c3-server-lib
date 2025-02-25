@@ -11,7 +11,7 @@ fn void test_process(Task t)
     // io::printfn("Req data: %s", ht.req_info.data.str_view());
 
     ht.buffer.clear();
-    ht.buffer.append_chars("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\nPong!");
+    ht.buffer.append_chars("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\n\r\nPong!");
     ht.stage = 0;
 }
 

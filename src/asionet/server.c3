@@ -140,7 +140,7 @@ fn void ParseTask.process(&self) @dynamic
         ParsedReq *req = mem::new(ParsedReq);
         req.init();
         // parse and save info
-        String[] parts = self.buffer.str_view().tsplit("\r\n\r\n");
+        String[] parts = self.buffer.tcopy_str().tsplit("\r\n\r\n");
         String[] headers = parts[0].tsplit("\r\n");
         self.buffer.clear();
         if (parts.len > 1) self.buffer.append_chars(parts[1]); // buffer should contain only the data
