@@ -7,6 +7,9 @@ import asionet;
 fn void test_process(Task t)
 {
     HttpTask *ht = (HttpTask*) t;
+
+    // io::printfn("Req data: %s", ht.req_info.data.str_view());
+
     ht.buffer.clear();
     ht.buffer.append_chars("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\nPong!");
     ht.stage = 0;
@@ -15,6 +18,7 @@ fn void test_process(Task t)
 fn void main(String[] args)
 {
     TcpServerSocket server_sock = tcp::listen("localhost", 8000, 100)!!;
+    server_sock.set_reuseaddr(true)!!;
 
     // Maybe use a threadpool to distribute more work?
 

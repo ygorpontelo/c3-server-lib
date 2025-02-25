@@ -18,11 +18,9 @@ def TaskLoop = List(<Task>);
 fn void TaskLoop.poll_tasks(&self, Duration poll_duration)
 {
     List(<Poll>) polling;
+    polling.new_init(self.size);
     defer polling.free();
-    foreach (&task : self)
-    {
-        polling.push(task.get_poll());
-    }
+    foreach (&task : self) polling.push(task.get_poll());
     ulong check = 0;
     ulong evs = net::poll(polling.array_view(), poll_duration)!!;
     if (evs > 0)
@@ -50,6 +48,7 @@ fn void TaskLoop.clear_done(&self)
         if (self.get_ref(i).is_done())
         {
             self.get_ref(i).free();
+            mem::free(*self.get_ref(i));
             self.remove_at(i);
         }
         else
