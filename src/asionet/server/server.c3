@@ -10,6 +10,8 @@ struct TcpAcceptTask (Task)
     Server *server;
 }
 
+fn String TcpAcceptTask.name(&self) @dynamic => "tcp_accept_task";
+
 fn void TcpAcceptTask.process(&self) @dynamic
 {
     TcpSocket *socket = mem::new(TcpSocket);
@@ -47,11 +49,6 @@ fn void TcpAcceptTask.free(&self) @dynamic
     return;
 }
 
-fn String TcpAcceptTask.name(&self) @dynamic
-{
-    return "tcpaccepttask";
-}
-
 // post /ping http/1.1
 // host: localhost:8000
 // accept: */*
@@ -61,25 +58,22 @@ fn String TcpAcceptTask.name(&self) @dynamic
 
 struct ParsedReq
 {
-    DString method;
-    DString path;
-    DString data;
-    DString host;
-    DString accept;
-    DString accept_encoding;
-    DString connection;
-    DString user_agent;
-    DString content_type;
+    String method;
+    String path;
+    String data;
+    String host;
+    String accept;
+    String accept_encoding;
+    String connection;
+    String user_agent;
+    String content_type;
     ulong content_length;
 }
 
-fn void ParsedReq.init(&self)
+fn void ParsedReq.set_defaults(&self)
 {
-    self.accept.append_chars("*/*");
-    self.accept_encoding.append_chars("gzip, deflate, br");
-    self.connection.append_chars("keep-alive");
-    self.content_type.append_chars("text/plain; charset=utf-8");
-    self.content_length = 0;
+    if (!self.connection) self.connection = string::new_format("keep-alive");
+    if (!self.content_type) self.content_type = string::new_format("text/plain; charset=utf-8");
 }
 
 fn void ParsedReq.free(&self)
@@ -106,6 +100,8 @@ struct ParseTask (Task)
     Server *server;
 }
 
+fn String ParseTask.name(&self) @dynamic => "parse_task";
+
 fn ParseTask* ParseTask.new_init(&self, Socket* sock, Server *server)
 {
     self.sock = sock;
@@ -116,6 +112,12 @@ fn ParseTask* ParseTask.new_init(&self, Socket* sock, Server *server)
     self.req_info = null;
     self.server = server;
     return self;
+}
+
+fn void ParseTask.parse_error(&self, String err_msg)
+{
+    self.timeout=true;
+    io::printn(err_msg);
 }
 
 fn void ParseTask.process(&self) @dynamic
@@ -137,8 +139,14 @@ fn void ParseTask.process(&self) @dynamic
     // parse req first
     if (self.req_info == null)
     {
+        // try to check first header is correct
+        String start_line = self.buffer.str_view().tsplit("\r\n")[0];
+        if (start_line.contains("http/1.1")) self.parse_error("Start line is wrong");
+
+        // not received all headers yet
+        if (!self.buffer.str_view().contains("\r\n\r\n")) return;
+
         ParsedReq *req = mem::new(ParsedReq);
-        req.init();
         // parse and save info
         String[] parts = self.buffer.tcopy_str().tsplit("\r\n\r\n");
         String[] headers = parts[0].tsplit("\r\n");
@@ -150,24 +158,34 @@ fn void ParseTask.process(&self) @dynamic
             header.convert_ascii_to_lower();
             switch
             {
+                case header.contains("http/1.1"):
+                    String[] header_parts = header.tsplit(" ");
+                    req.method = header_parts[0].copy();
+                    req.path = header_parts[1].copy();
+
                 case header.contains("content-length"):
                     req.content_length = header.tsplit(":")[1].trim().to_ulong()!!;
-                // case header.contains("http/1.1"):
-                //     ...
+
                 // case header.contains("host"):
                 //     ...
+
                 // case header.contains("accept-encoding"):
                 //     ...
+
                 // case header.contains("accept"):
                 //     ...
+
                 // case header.contains("connection"):
                 //     ...
+
                 // case header.contains("user-agent"):
                 //     ...
-                default:
-                    io::printfn("Unknown header %s", header);
+
+                // default:
+                //     io::printfn("Unknown header %s", header);
             }
         }
+        req.set_defaults();
         self.req_info = req;
     }
 
@@ -175,14 +193,14 @@ fn void ParseTask.process(&self) @dynamic
     if (self.buffer.len() < self.req_info.content_length) return;
 
     // if all expected data is read then format data if any
-    self.req_info.data.append_string(self.buffer);
+    self.req_info.data = self.buffer.copy_str();
 
-    // given parsed req, select task (only http for now)
-    HttpTask *task = mem::new(HttpTask);
+    // given parsed req, select task (only http 1.1 for now)
+    Http11Task *task = mem::new(Http11Task);
     task.new_init(self.sock, self.req_info, self.server);
     self.server.tasks.push((Task)task);
 
-    self.done = self.req_info.connection.str_view() != "keep-alive";
+    self.done = self.req_info.connection != "keep-alive";
     self.req_info = null;
     self.buffer.clear();
 }
@@ -216,117 +234,6 @@ fn void ParseTask.free(&self) @dynamic
     self.buffer.free();
 }
 
-fn String ParseTask.name(&self) @dynamic
-{
-    return "parsetask";
-}
-
-struct HttpTask (Task)
-{
-    Socket *sock;  // tcp connection
-    bool done;
-    uint stage;
-    DString buffer;
-    void *data;  // possible user data to store
-    Time t_born;
-    ParsedReq *req_info;
-    Server *server;
-
-    struct proc
-    {
-        Socket *sock;  // possible other socket to watch for
-        PollSubscribes event;
-        AssociatedFunc func;
-    }
-}
-
-fn void HttpTask.process(&self) @dynamic
-{
-    switch (self.stage)
-    {
-        case 0:
-            if (catch excuse = asionet::write_sock(self.sock, &self.buffer))
-            {
-                if (excuse != IoError.WOULD_BLOCK)
-                {
-                    self.done = true;
-                    // log error
-                    io::printfn("Socket error: %s", excuse);
-                    return;
-                }
-            }
-            // if all data was written then set done
-            self.done = self.buffer.len() == 0;
-        default:
-            self.proc.func((Task)self);
-    }
-}
-
-fn Poll HttpTask.get_poll(&self) @dynamic
-{
-    Poll poll;
-
-    // not io bound yet
-    if (self.stage > 0 && self.proc.sock==null) @pool(){ self.proc.func((Task)self); };
-
-    if (self.stage > 0)
-    {
-        if (self.proc.sock==null)
-        {
-            // ignore task for now
-            poll.socket = -1;
-        }
-        else
-        {
-            poll.socket = self.proc.sock.sock;
-            poll.events = self.proc.event;
-        }
-    }
-    else
-    {
-        poll.socket = self.sock.sock;
-        poll.events = net::SUBSCRIBE_ANY_WRITE;
-    }
-    return poll;
-}
-
-fn bool HttpTask.is_done(&self) @dynamic
-{
-    return self.done || time::now().diff_sec(self.t_born) >= self.server.timeout;
-}
-
-fn HttpTask* HttpTask.new_init(&self, Socket* socket, ParsedReq *req, Server *server)
-{
-    self.sock=socket;
-    self.done=false;
-    self.stage=1;
-    self.buffer.new_init(256);
-    self.data=null;
-    self.t_born=time::now();
-    self.req_info=req;
-    self.server=server;
-    self.proc.sock=null;
-    // select user function based on parsed req
-    self.proc.func=self.server.user_funcs["/ping"]!!;
-    return self;
-}
-
-fn void HttpTask.free(&self) @dynamic
-{
-    if (self.req_info.connection.str_view() != "keep-alive")
-    {
-        self.sock.destroy()!!;
-        mem::free(self.sock);
-    }
-    self.buffer.free();
-    self.req_info.free();
-    mem::free(self.req_info);
-}
-
-fn String HttpTask.name(&self) @dynamic
-{
-    return "httptask";
-}
 
 def UserFnMap = HashMap(<String, AssociatedFunc>);
 def AssociatedFunc = fn void (Task);
@@ -343,7 +250,7 @@ fn Server* Server.init(&self, usz initial_task_capacity=1024, uint timeout=5)
 {
     self.sock=null;
     self.timeout=timeout;
-    self.tasks.new_init(initial_task_capacity);
+    self.tasks.new_init(initial_task_capacity, time::SEC);
     self.user_funcs.new_init();
     return self;
 }
@@ -359,5 +266,5 @@ fn void Server.listen_to(&self, TcpServerSocket *server_sock)
 fn void Server.run_forever(&self)
 {
     // watch for signals in future
-    self.tasks.loop_forever(time::SEC);
+    self.tasks.run_until_complete();
 }

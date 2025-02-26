@@ -6,13 +6,12 @@ import asionet;
 
 fn void test_process(Task t)
 {
-    HttpTask *ht = (HttpTask*) t;
+    Http11Task *h11 = (Http11Task*)t;
+    // io::printfn("Req data: %s", t.req_info.data.str_view());
 
-    // io::printfn("Req data: %s", ht.req_info.data.str_view());
-
-    ht.buffer.clear();
-    ht.buffer.append_chars("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\n\r\nPong!");
-    ht.stage = 0;
+    h11.buffer.clear();
+    h11.buffer.append_chars("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\n\r\nPong!");
+    h11.stage = 0;
 }
 
 fn void main(String[] args)

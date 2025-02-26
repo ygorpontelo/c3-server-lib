@@ -10,7 +10,7 @@ fault ASock
 fn void! read_sock(Socket *sock, DString *buffer)
 {
     ulong chars;
-    char[4096] in_buffer;
+    char[1024] in_buffer;
     while (chars = sock.read(&in_buffer)!) buffer.append_chars((String)in_buffer[:chars]);
     if (chars == 0) return ASock.EOF?;
 }

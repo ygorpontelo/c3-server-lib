@@ -13,16 +13,28 @@ interface Task
     fn void free();
 }
 
-def TaskLoop = List(<Task>);
+struct TaskLoop
+{
+    List(<Task>) tasks;
+    Duration poll_duration;
+}
 
-fn void TaskLoop.poll_tasks(&self, Duration poll_duration)
+fn void TaskLoop.new_init(&self, usz initial_task_capacity, Duration poll_duration)
+{
+    self.poll_duration = poll_duration;
+    self.tasks.new_init(initial_task_capacity);
+}
+
+fn void TaskLoop.push(&self, Task t) => self.tasks.push(t);
+
+fn void TaskLoop.poll_tasks(&self)
 {
     List(<Poll>) polling;
-    polling.new_init(self.size);
+    polling.new_init(self.tasks.size);
     defer polling.free();
-    foreach (&task : self) polling.push(task.get_poll());
+    foreach (&task : self.tasks) polling.push(task.get_poll());
     ulong check = 0;
-    ulong evs = net::poll(polling.array_view(), poll_duration)!!;
+    ulong evs = net::poll(polling.array_view(), self.poll_duration)!!;
     if (evs > 0)
     {
         foreach (idx, &poll : polling)
@@ -32,7 +44,7 @@ fn void TaskLoop.poll_tasks(&self, Duration poll_duration)
                 check++;
                 @pool()
                 {
-                    self.get_ref(idx).process();
+                    self.tasks[idx].process();
                 };
             }
             if (check == evs) break;
@@ -43,13 +55,13 @@ fn void TaskLoop.poll_tasks(&self, Duration poll_duration)
 fn void TaskLoop.clear_done(&self)
 {
     ulong i = 0;
-    while (i<self.size)
+    while (i<self.tasks.size)
     {
-        if (self.get_ref(i).is_done())
+        if (self.tasks[i].is_done())
         {
-            self.get_ref(i).free();
-            mem::free(*self.get_ref(i));
-            self.remove_at(i);
+            self.tasks[i].free();
+            mem::free(self.tasks[i]);
+            self.tasks.remove_at(i);
         }
         else
         {
@@ -58,11 +70,11 @@ fn void TaskLoop.clear_done(&self)
     }
 }
 
-fn void TaskLoop.loop_forever(&self, Duration poll_duration)
+fn void TaskLoop.run_until_complete(&self)
 {
-    while (self.size > 0)
+    while (self.tasks.size > 0)
     {
-        self.poll_tasks(poll_duration);
+        self.poll_tasks();
         self.clear_done();
     }
 }
