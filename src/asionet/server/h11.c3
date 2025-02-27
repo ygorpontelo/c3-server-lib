@@ -1,4 +1,4 @@
-module asionet::server::h11;
+module asionet::server;
 import std::io;
 import std::net;
 import std::time;

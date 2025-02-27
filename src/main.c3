@@ -10,6 +10,7 @@ fn void test_process(Task t)
     // io::printfn("Req data: %s", h11.req_info.data);
     // io::printfn("Req path: %s", h11.req_info.path);
     // io::printfn("Req data: %s", h11.req_info.content_type);
+    // io::printfn("Req test header: %s", h11.req_info.additional_headers["Test"]!!);
 
     h11.buffer.clear();
     h11.buffer.append_chars("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\n\r\nPong!");
