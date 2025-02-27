@@ -19,7 +19,7 @@ fn void TcpAcceptTask.process(&self) @dynamic
     socket.sock = os::accept(self.server.sock.sock, (SockAddrPtr)&socket.ai_addr_storage, &socket.ai_addrlen);
     if (socket.sock.is_valid())
     {
-        // io::printn("socket is valid!");
+        io::printn("socket is valid!");
         socket.sock.set_non_blocking(true)!!;
         socket.set_reuseaddr(true)!!;
         ParseTask *t = mem::new(ParseTask);
@@ -181,8 +181,8 @@ fn void ParseTask.process(&self) @dynamic
                 // case header.contains("user-agent"):
                 //     ...
 
-                // default:
-                //     io::printfn("Unknown header %s", header);
+                default:
+                    io::printfn("Unknown header %s", header);
             }
         }
         req.set_defaults();
@@ -200,9 +200,7 @@ fn void ParseTask.process(&self) @dynamic
     task.new_init(self.sock, self.req_info, self.server);
     self.server.tasks.push((Task)task);
 
-    self.done = self.req_info.connection != "keep-alive";
-    self.req_info = null;
-    self.buffer.clear();
+    self.done = true;
 }
 
 fn bool ParseTask.is_done(&self) @dynamic
@@ -246,7 +244,7 @@ struct Server
     uint timeout;
 }
 
-fn Server* Server.init(&self, usz initial_task_capacity=1024, uint timeout=5)
+fn Server* Server.init(&self, usz initial_task_capacity=1024, uint timeout=10)
 {
     self.sock=null;
     self.timeout=timeout;

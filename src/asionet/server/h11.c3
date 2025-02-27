@@ -43,6 +43,12 @@ fn void Http11Task.process(&self) @dynamic
             }
             // if all data was written then set done
             self.done = self.buffer.len() == 0;
+
+            if (self.done && self.req_info.connection == "keep-alive")
+            {
+                ParseTask *t = mem::new(ParseTask);
+                self.server.tasks.push((Task)t.new_init(self.sock, self.server));
+            }
         default:
             self.proc.func((Task)self);
     }
