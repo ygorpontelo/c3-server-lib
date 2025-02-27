@@ -25,7 +25,7 @@ def run_main(qtd):
     return res
 
 if __name__ == "__main__":
-    p, qtd = 200, 150
+    p, qtd = 256, 100
     v = [qtd for _ in range(p)]
     # 8 workers seems to work better
     with ProcessPoolExecutor(max_workers=8) as executor:

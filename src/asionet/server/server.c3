@@ -19,7 +19,7 @@ fn void TcpAcceptTask.process(&self) @dynamic
     socket.sock = os::accept(self.server.sock.sock, (SockAddrPtr)&socket.ai_addr_storage, &socket.ai_addrlen);
     if (socket.sock.is_valid())
     {
-        io::printn("socket is valid!");
+        // io::printn("socket is valid!");
         socket.sock.set_non_blocking(true)!!;
         socket.set_reuseaddr(true)!!;
         ParseTask *t = mem::new(ParseTask);
@@ -94,6 +94,7 @@ struct ParseTask (Task)
     Socket *sock;  // tcp connection
     bool done;
     bool timeout;
+    bool check_start_line;
     DString buffer;
     Time t_born;
     ParsedReq *req_info;
@@ -107,6 +108,7 @@ fn ParseTask* ParseTask.new_init(&self, Socket* sock, Server *server)
     self.sock = sock;
     self.done = false;
     self.timeout = false;
+    self.check_start_line = true;
     self.buffer.new_init(256);
     self.t_born=time::now();
     self.req_info = null;
@@ -140,8 +142,12 @@ fn void ParseTask.process(&self) @dynamic
     if (self.req_info == null)
     {
         // try to check first header is correct
-        String start_line = self.buffer.str_view().tsplit("\r\n")[0];
-        if (start_line.contains("http/1.1")) self.parse_error("Start line is wrong");
+        if (self.check_start_line)
+        {
+            String start_line = self.buffer.str_view().tsplit("\r\n")[0];
+            if (start_line.contains("http/1.1")) self.parse_error("Start line is wrong");
+            self.check_start_line=false;
+        }
 
         // not received all headers yet
         if (!self.buffer.str_view().contains("\r\n\r\n")) return;
@@ -165,21 +171,24 @@ fn void ParseTask.process(&self) @dynamic
 
                 case header.contains("content-length"):
                     req.content_length = header.tsplit(":")[1].trim().to_ulong()!!;
+                
+                case header.contains("content-type"):
+                    req.content_type = header.tsplit(":")[1].trim().copy();
 
-                // case header.contains("host"):
-                //     ...
+                case header.contains("accept-encoding"):
+                    req.accept_encoding = header.tsplit(":")[1].trim().copy();
 
-                // case header.contains("accept-encoding"):
-                //     ...
+                case header.contains("accept"):
+                    req.accept = header.tsplit(":")[1].trim().copy();
 
-                // case header.contains("accept"):
-                //     ...
+                case header.contains("host"):
+                    req.host = header.tsplit(":")[1].trim().copy();
 
-                // case header.contains("connection"):
-                //     ...
+                case header.contains("connection"):
+                    req.connection = header.tsplit(":")[1].trim().copy();
 
-                // case header.contains("user-agent"):
-                //     ...
+                case header.contains("user-agent"):
+                    req.user_agent = header.tsplit(":")[1].trim().copy();
 
                 default:
                     io::printfn("Unknown header %s", header);
