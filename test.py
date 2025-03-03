@@ -18,7 +18,7 @@ if __name__ == "__main__":
         res = executor.map(run_main, v)
     t2 = time.time()
     for r in res:
-        re = len([v for v in r if isinstance(v, httpx.ReadError)])
-        if re > 0:
-            print(f"error read: {re}")
+        re = [v for v in r if v != "Pong!"]
+        if re:
+            print(f"error read: {len(re)} => {re}")
     print(f"{(qtd*p) / (t2-t1)} req/s")

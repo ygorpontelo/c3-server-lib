@@ -9,6 +9,7 @@ struct Http11Task (Task)
 {
     Socket *sock;  // tcp connection
     bool done;
+    bool timeout;
     uint stage;
     DString buffer;
     void *data;  // possible user data to store
@@ -20,37 +21,41 @@ struct Http11Task (Task)
     {
         Socket *sock;  // possible other socket to watch for
         PollSubscribes event;
+        PollEvents revents;
         AssociatedFunc func;
+        AssociatedFunc closure;
     }
 }
 
 fn String Http11Task.name(&self) @dynamic => "h11_task";
 
-fn void Http11Task.process(&self) @dynamic
+fn void Http11Task.process(&self, PollEvents revents) @dynamic
 {
-    switch (self.stage)
+    if (self.stage == 0)
     {
-        case 0:
-            if (catch excuse = asionet::write_sock(self.sock, &self.buffer))
+        if (catch excuse = asionet::write_sock(self.sock, &self.buffer))
+        {
+            if (excuse != IoError.WOULD_BLOCK)
             {
-                if (excuse != IoError.WOULD_BLOCK)
-                {
-                    self.done = true;
-                    // log error
-                    io::printfn("Socket error: %s", excuse);
-                    return;
-                }
+                self.timeout=true;
+                // log error
+                io::printfn("Write Socket error: %s", excuse);
+                return;
             }
-            // if all data was written then set done
-            self.done = self.buffer.len() == 0;
+        }
+        // if all data was written then set done
+        self.done = self.buffer.len() == 0;
 
-            if (self.done && self.req_info.connection == "keep-alive")
-            {
-                ParseTask *t = mem::new(ParseTask);
-                self.server.tasks.push((Task)t.new_init(self.sock, self.server));
-            }
-        default:
-            self.proc.func((Task)self);
+        if (self.done && self.req_info.connection == "keep-alive")
+        {
+            ParseTask *t = mem::new(ParseTask);
+            self.server.tasks.push((Task)t.new_init(self.sock, self.server));
+        }
+    }
+    else
+    {
+        self.proc.revents = revents;
+        self.proc.func((Task)self);
     }
 }
 
@@ -84,13 +89,15 @@ fn Poll Http11Task.get_poll(&self) @dynamic
 
 fn bool Http11Task.is_done(&self) @dynamic
 {
-    return self.done || time::now().diff_sec(self.t_born) >= self.server.timeout;
+    self.timeout = self.timeout || (!self.done && time::now().diff_sec(self.t_born) >= self.server.timeout);
+    return self.done || self.timeout;
 }
 
 fn Http11Task* Http11Task.new_init(&self, Socket* socket, ParsedReq *req, Server *server)
 {
     self.sock=socket;
     self.done=false;
+    self.timeout=false;
     self.stage=1;
     self.buffer.new_init(256);
     self.data=null;
@@ -100,12 +107,14 @@ fn Http11Task* Http11Task.new_init(&self, Socket* socket, ParsedReq *req, Server
     self.proc.sock=null;
     // select user function based on parsed req
     self.proc.func=self.server.user_funcs["/ping"]!!;
+    self.proc.closure=null;
     return self;
 }
 
 fn void Http11Task.free(&self) @dynamic
 {
-    if (self.req_info.connection != "keep-alive")
+    if (self.proc.closure) @pool(){ self.proc.closure((Task)self); };
+    if (self.timeout || self.req_info.connection != "keep-alive")
     {
         self.sock.destroy()!!;
         mem::free(self.sock);

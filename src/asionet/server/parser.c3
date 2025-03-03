@@ -102,27 +102,23 @@ fn ParseTask* ParseTask.new_init(&self, Socket* sock, Server *server)
     return self;
 }
 
-fn void ParseTask.parse_error(&self, String err_msg)
+fn void ParseTask.parse_error(&self, String err_msg="")
 {
     self.timeout=true;
-    io::printn(err_msg);
+    if(err_msg) io::printn(err_msg);
 }
 
-fn void ParseTask.process(&self) @dynamic
+fn void ParseTask.process(&self, PollEvents revents) @dynamic
 {
     if (catch excuse = asionet::read_sock(self.sock, &self.buffer))
     {
         if (excuse != IoError.WOULD_BLOCK)
         {
-            self.timeout=true;
-            // log error
-            if (excuse != ASock.EOF) io::printfn("Socket error: %s", excuse);
+            String err = excuse != ASock.EOF ? string::tformat("Read Socket err: %s", excuse) : "";
+            self.parse_error(err);
             return;
         }
     }
-
-    // update time if there is data
-    self.t_born = time::now();
 
     // parse req first
     if (self.req_info == null)
@@ -131,7 +127,11 @@ fn void ParseTask.process(&self) @dynamic
         if (self.check_start_line)
         {
             String start_line = self.buffer.str_view().tsplit("\r\n")[0];
-            if (start_line.contains("http/1.1")) self.parse_error("Start line is wrong");
+            if (start_line.contains("http/1.1"))
+            {
+                self.parse_error("Start line is wrong");
+                return;
+            }
             self.check_start_line=false;
         }
 
@@ -165,7 +165,6 @@ fn void ParseTask.process(&self) @dynamic
                 case header.contains("connection"):
                     req.connection = header.tsplit(":")[1].trim().copy();
                 default:
-                    // io::printfn("Unknown header %s", header);
                     String[] header_parts = header.tsplit(":");
                     req.additional_headers[header_parts[0].trim()] = header_parts[1].trim().copy();
             }

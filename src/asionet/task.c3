@@ -7,7 +7,7 @@ import std::collections;
 interface Task
 {
     fn String name();
-    fn void process();
+    fn void process(PollEvents);
     fn bool is_done();
     fn Poll get_poll();
     fn void free();
@@ -39,12 +39,12 @@ fn void TaskLoop.poll_tasks(&self)
     {
         foreach (idx, &poll : polling)
         {
-            if (poll.socket != -1 && (ushort)poll.revents & (ushort)poll.events)
+            if ((ushort)poll.revents)
             {
                 check++;
                 @pool()
                 {
-                    self.tasks[idx].process();
+                    self.tasks[idx].process(poll.revents);
                 };
             }
             if (check == evs) break;
@@ -70,11 +70,16 @@ fn void TaskLoop.clear_done(&self)
     }
 }
 
+fn usz TaskLoop.size(&self) @inline => self.tasks.size;
+
+fn void TaskLoop.run_iteration(&self)
+{
+    if (self.size() == 0) return;
+    self.poll_tasks();
+    self.clear_done();
+}
+
 fn void TaskLoop.run_until_complete(&self)
 {
-    while (self.tasks.size > 0)
-    {
-        self.poll_tasks();
-        self.clear_done();
-    }
+    while (self.size() > 0) self.run_iteration();
 }

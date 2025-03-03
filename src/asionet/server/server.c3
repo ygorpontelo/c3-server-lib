@@ -12,7 +12,7 @@ struct TcpAcceptTask (Task)
 
 fn String TcpAcceptTask.name(&self) @dynamic => "tcp_accept_task";
 
-fn void TcpAcceptTask.process(&self) @dynamic
+fn void TcpAcceptTask.process(&self, PollEvents revents) @dynamic
 {
     TcpSocket *socket = mem::new(TcpSocket);
     socket.ai_addrlen = socket.ai_addr_storage.len;
@@ -44,10 +44,8 @@ fn bool TcpAcceptTask.is_done(&self) @dynamic
     return false;
 }
 
-fn void TcpAcceptTask.free(&self) @dynamic
-{
-    return;
-}
+fn void TcpAcceptTask.free(&self) @dynamic {}
+
 
 // ------ Server itself
 
@@ -62,7 +60,7 @@ struct Server
     uint timeout;
 }
 
-fn Server* Server.init(&self, usz initial_task_capacity=1024, uint timeout=10)
+fn Server* Server.init(&self, usz initial_task_capacity=1024, uint timeout=5)
 {
     self.sock=null;
     self.timeout=timeout;
@@ -81,6 +79,9 @@ fn void Server.listen_to(&self, TcpServerSocket *server_sock)
 
 fn void Server.run_forever(&self)
 {
-    // watch for signals in future
-    self.tasks.run_until_complete();
+    while (self.tasks.size() > 0)
+    {
+        // watch for signals in future
+        self.tasks.run_iteration();
+    }
 }
