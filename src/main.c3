@@ -12,9 +12,12 @@ fn void test_process(Task t)
     // io::printfn("Req data: %s", h11.req_info.content_type);
     // io::printfn("Req test header: %s", h11.req_info.additional_headers["Test"]!!);
 
-    h11.buffer.clear();
-    h11.buffer.append_chars("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\n\r\nPong!");
-    h11.stage = 0;
+    h11.proc.cleanfn = fn (t) {
+        io::printfn("Server req data: %s", t.req_info.data);
+        io::printfn("Server req header: %s", t.req_info.additional_headers["Test"]!!);
+    };
+
+    h11.make_response(200, data:"Pong!", headers:{"content-type: text/plain", "test-header: testing"});
 }
 
 fn void main(String[] args)
@@ -27,7 +30,8 @@ fn void main(String[] args)
     Server server;
     server.init();
     server.listen_to(&server_sock);
-    server.user_funcs["/ping"] = &test_process;
+
+    server.add_endpoint(Method.POST, "/ping", &test_process);
 
     server.run_forever();
 }

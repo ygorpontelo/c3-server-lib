@@ -95,7 +95,7 @@ fn ParseTask* ParseTask.new_init(&self, Socket* sock, Server *server)
     self.done = false;
     self.timeout = false;
     self.check_start_line = true;
-    self.buffer.new_init(256);
+    self.buffer.init(mem, capacity:256);
     self.t_born=time::now();
     self.req_info = null;
     self.server = server;
@@ -182,8 +182,19 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
     // given parsed req, select task (only http 1.1 for now)
     Http11Task *task = mem::new(Http11Task);
     task.new_init(self.sock, self.req_info, self.server);
-    self.server.tasks.push((Task)task);
 
+    String key = string::tformat("%s %s", self.req_info.method.temp_ascii_to_upper(), self.req_info.path);
+    if (try func = self.server.user_funcs[key])
+    {
+        task.proc.func = func;
+    }
+    else
+    {
+        // check supported methods and send in response as Allow header
+        task.make_response(405, reason:"Method not Allowed");
+    }
+
+    self.server.tasks.push((Task)task);
     self.done = true;
 }
 

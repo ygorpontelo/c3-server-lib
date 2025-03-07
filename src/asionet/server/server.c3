@@ -52,6 +52,16 @@ fn void TcpAcceptTask.free(&self) @dynamic {}
 def UserFnMap = HashMap(<String, AssociatedFunc>);
 def AssociatedFunc = fn void (Task);
 
+enum Method : char (inline String s)
+{
+    GET = "GET",
+    POST = "POST",
+    PUT = "PUT",
+    PATCH = "PATCH",
+    DELETE = "DELETE",
+    WEBSOCKET = "WEBSOCKET"
+}
+
 struct Server
 {
     TcpServerSocket *sock;
@@ -65,7 +75,7 @@ fn Server* Server.init(&self, usz initial_task_capacity=1024, uint timeout=5)
     self.sock=null;
     self.timeout=timeout;
     self.tasks.new_init(initial_task_capacity, time::SEC);
-    self.user_funcs.new_init();
+    self.user_funcs.init(mem);
     return self;
 }
 
@@ -75,6 +85,13 @@ fn void Server.listen_to(&self, TcpServerSocket *server_sock)
     TcpAcceptTask *at = mem::new(TcpAcceptTask);
     at.server = self;
     self.tasks.push((Task)at);
+}
+
+fn bool Server.add_endpoint(&self, Method met, String endpoint, AssociatedFunc func)
+{
+    String key = string::new_format("%s %s", met, endpoint);
+    defer key.free();
+    return self.user_funcs[key] = func;
 }
 
 fn void Server.run_forever(&self)

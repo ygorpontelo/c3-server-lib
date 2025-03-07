@@ -5,6 +5,8 @@ import std::time;
 import std::collections;
 
 
+def CleanFunc = fn void (Http11Task*);
+
 struct Http11Task (Task)
 {
     Socket *sock;  // tcp connection
@@ -23,7 +25,7 @@ struct Http11Task (Task)
         PollSubscribes event;
         PollEvents revents;
         AssociatedFunc func;
-        AssociatedFunc closure;
+        CleanFunc cleanfn;
     }
 }
 
@@ -96,24 +98,17 @@ fn bool Http11Task.is_done(&self) @dynamic
 fn Http11Task* Http11Task.new_init(&self, Socket* socket, ParsedReq *req, Server *server)
 {
     self.sock=socket;
-    self.done=false;
-    self.timeout=false;
     self.stage=1;
-    self.buffer.new_init(256);
-    self.data=null;
+    self.buffer.init(mem, capacity:256);
     self.t_born=time::now();
     self.req_info=req;
     self.server=server;
-    self.proc.sock=null;
-    // select user function based on parsed req
-    self.proc.func=self.server.user_funcs["/ping"]!!;
-    self.proc.closure=null;
     return self;
 }
 
 fn void Http11Task.free(&self) @dynamic
 {
-    if (self.proc.closure) @pool(){ self.proc.closure((Task)self); };
+    if (self.proc.cleanfn) @pool(){ self.proc.cleanfn(self); };
     if (self.timeout || self.req_info.connection != "keep-alive")
     {
         self.sock.destroy()!!;
@@ -122,4 +117,46 @@ fn void Http11Task.free(&self) @dynamic
     self.buffer.free();
     self.req_info.free();
     mem::free(self.req_info);
+}
+
+fn void Http11Task.make_response(
+    &self,
+    uint status_code,
+    String reason="OK",
+    String conn="keep-alive",
+    String data="",
+    String[] headers={}
+)
+{
+    self.stage = 0;
+    self.buffer.clear();
+    if (headers.len)
+    {
+        String joined_headers = string::join_new(headers, "\r\n");
+        defer joined_headers.free();
+        self.buffer.append_chars(
+            string::tformat(
+                "HTTP/1.1 %d %s\r\ncontent-length: %d\r\nconnection: %s\r\n%s\r\n\r\n%s",
+                status_code,
+                reason,
+                data.len,
+                conn,
+                joined_headers,
+                data
+            )
+        );
+    }
+    else
+    {
+        self.buffer.append_chars(
+            string::tformat(
+                "HTTP/1.1 %d %s\r\ncontent-length: %d\r\nconnection: %s\r\n\r\n%s",
+                status_code,
+                reason,
+                data.len,
+                conn,
+                data
+            )
+        );
+    }
 }
