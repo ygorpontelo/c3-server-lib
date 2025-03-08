@@ -192,6 +192,7 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
     }
     else
     {
+        // if path does not exist at all, the response should be 400, improv this later
         // check supported methods and send in response as Allow header
         task.make_response(405, reason:"Method not Allowed");
     }
