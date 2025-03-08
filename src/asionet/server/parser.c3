@@ -57,7 +57,7 @@ struct ParsedReq
     HeaderMap additional_headers;
 }
 
-fn void ParsedReq.set_defaults(&self)
+macro ParsedReq.set_defaults(&self)
 {
     if (!self.connection) self.connection = string::new_format("keep-alive");
     if (!self.content_type) self.content_type = string::new_format("text/plain; charset=utf-8");
@@ -102,7 +102,7 @@ fn ParseTask* ParseTask.new_init(&self, Socket* sock, Server *server)
     return self;
 }
 
-fn void ParseTask.parse_error(&self, String err_msg="")
+macro ParseTask.parse_error(&self, String err_msg="")
 {
     self.timeout=true;
     if(err_msg) io::printn(err_msg);
@@ -123,11 +123,13 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
     // parse req first
     if (self.req_info == null)
     {
-        // try to check first header is correct
+        // try to check first line is correct
+        // this assumes http 1.1, need to address later
         if (self.check_start_line)
         {
             String start_line = self.buffer.str_view().tsplit("\r\n")[0];
-            if (start_line.contains("http/1.1"))
+            String[] sl_parts = start_line.tsplit(" ");
+            if (sl_parts.len != 3 || !sl_parts[2].temp_ascii_to_lower().contains("http/1.1"))
             {
                 self.parse_error("Start line is wrong");
                 return;

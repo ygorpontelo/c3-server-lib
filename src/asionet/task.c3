@@ -72,14 +72,16 @@ fn void TaskLoop.clear_done(&self)
 
 fn usz TaskLoop.size(&self) @inline => self.tasks.size;
 
-fn void TaskLoop.run_iteration(&self)
+fn bool TaskLoop.run_iteration(&self)
 {
-    if (self.size() == 0) return;
+    if (self.size() == 0) return false;
     self.poll_tasks();
     self.clear_done();
+    return true;
 }
 
 fn void TaskLoop.run_until_complete(&self)
 {
-    while (self.size() > 0) self.run_iteration();
+    bool run = true;
+    while (run) run = self.run_iteration();
 }

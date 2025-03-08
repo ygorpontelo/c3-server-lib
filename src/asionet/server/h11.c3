@@ -9,23 +9,23 @@ def CleanFunc = fn void (Http11Task*);
 
 struct Http11Task (Task)
 {
-    Socket *sock;  // tcp connection
+    Socket *sock;               // tcp connection
     bool done;
     bool timeout;
-    uint stage;
+    uint stage;                 // allows for 
     DString buffer;
-    void *data;  // possible user data to store
+    void *data;                 // possible user data to store
     Time t_born;
     ParsedReq *req_info;
     Server *server;
 
     struct proc
     {
-        Socket *sock;  // possible other socket to watch for
-        PollSubscribes event;
-        PollEvents revents;
-        AssociatedFunc func;
-        CleanFunc cleanfn;
+        Socket *sock;           // possible other socket to watch for
+        PollSubscribes event;   // event to watch
+        PollEvents revents;     // events that occurred, either tcp conn or proc.sock
+        AssociatedFunc func;    // user fn to handle req
+        CleanFunc cleanfn;      // lambda to run when freed, useful for correct cleanups, accounts timeouts
     }
 }
 
@@ -33,7 +33,7 @@ fn String Http11Task.name(&self) @dynamic => "h11_task";
 
 fn void Http11Task.process(&self, PollEvents revents) @dynamic
 {
-    if (self.stage == 0)
+    if (self.stage == 0)  // zero reserved for response
     {
         if (catch excuse = asionet::write_sock(self.sock, &self.buffer))
         {
@@ -117,6 +117,12 @@ fn void Http11Task.free(&self) @dynamic
     self.buffer.free();
     self.req_info.free();
     mem::free(self.req_info);
+}
+
+macro Http11Task.watch_socket(&self, Socket *sock, PollSubscribes event)
+{
+    self.proc.sock = sock;
+    self.proc.event = event;
 }
 
 fn void Http11Task.make_response(

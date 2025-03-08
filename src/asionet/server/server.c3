@@ -96,9 +96,12 @@ fn bool Server.add_endpoint(&self, Method met, String endpoint, AssociatedFunc f
 
 fn void Server.run_forever(&self)
 {
-    while (self.tasks.size() > 0)
+    bool run = true;
+    while (run)
     {
         // watch for signals in future
-        self.tasks.run_iteration();
+        // make graceful shutdown
+        run = self.tasks.run_iteration();
     }
+    // possible cleanups
 }
