@@ -12,36 +12,36 @@ import std::collections;
 // connection: keep-alive
 // user-agent: python-httpx/0.27.0
 
-struct HeaderMap
+struct ArgMap
 {
-    HashMap(<String, String>) headers;
+    HashMap(<String, String>) args;
 }
 
-fn String! HeaderMap.get(&self, String key) @operator([])
+fn String! ArgMap.get(&self, String key) @operator([])
 {
     String keylower = key.new_ascii_to_lower();
     defer keylower.free();
-    return self.headers[keylower]!;
+    return self.args[keylower]!;
 }
 
-fn bool HeaderMap.set(&self, String key, String value) @operator([]=)
+fn bool ArgMap.set(&self, String key, String value) @operator([]=)
 {
     String keylower = key.new_ascii_to_lower();
     defer keylower.free();
-    return self.headers[keylower] = value;
+    return self.args[keylower] = value;
 }
 
-fn bool HeaderMap.has_key(&self, String key)
+fn bool ArgMap.has_key(&self, String key)
 {
     String keylower = key.new_ascii_to_lower();
     defer keylower.free();
-    return self.headers.has_key(keylower);
+    return self.args.has_key(keylower);
 }
 
-fn void HeaderMap.free(&self)
+fn void ArgMap.free(&self)
 {
-    self.headers.@each(; String key, String value){ value.free(); };
-    self.headers.free();
+    self.args.@each(; String key, String value){ value.free(); };
+    self.args.free();
 }
 
 struct ParsedReq
@@ -54,7 +54,8 @@ struct ParsedReq
     String connection;
     String content_type;
     ulong content_length;
-    HeaderMap additional_headers;
+    ArgMap additional_headers;
+    ArgMap params;
 }
 
 macro ParsedReq.set_defaults(&self)
@@ -73,6 +74,7 @@ fn void ParsedReq.free(&self)
     self.connection.free();
     self.content_type.free();
     self.additional_headers.free();
+    self.params.free();
 }
 
 struct ParseTask (Task)
@@ -108,6 +110,8 @@ macro ParseTask.parse_error(&self, String err_msg="")
     if(err_msg) io::printn(err_msg);
 }
 
+def ParamTuples = List(<Tuple(<String, String>)>);
+
 fn void ParseTask.process(&self, PollEvents revents) @dynamic
 {
     if (catch excuse = asionet::read_sock(self.sock, &self.buffer))
@@ -127,6 +131,7 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
         // this assumes http 1.1, need to address later
         if (self.check_start_line)
         {
+            if (!self.buffer.str_view().contains("\r\n")) return;
             String start_line = self.buffer.str_view().tsplit("\r\n")[0];
             String[] sl_parts = start_line.tsplit(" ");
             if (sl_parts.len != 3 || !sl_parts[2].temp_ascii_to_lower().contains("http/1.1"))
@@ -149,22 +154,39 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
 
         foreach (header : headers)
         {
-            header.convert_ascii_to_lower();
+            String header_l = header.temp_ascii_to_lower();
             switch
             {
-                case header.contains("http/1.1"):
+                case header_l.contains("http/1.1"):
                     String[] header_parts = header.tsplit(" ");
-                    req.method = header_parts[0].copy();
-                    req.path = header_parts[1].copy();
-                case header.contains("content-length"):
+                    req.method = header_parts[0].temp_ascii_to_upper().copy();
+                    // parse query params
+                    // need to handle decoding errs
+                    if (header_parts[1].contains("?"))
+                    {
+                        String[] pp = header_parts[1].tsplit("?");
+                        req.path = url::temp_decode(pp[0], PATH)!!.new_ascii_to_lower();
+                        String[] params = url::temp_decode(pp[1], QUERY)!!.tsplit("&");
+                        io::printn(params);
+                        foreach (&p : params)
+                        {
+                            String[] param_parts = p.tsplit("=");
+                            req.params[param_parts[0]] = param_parts[1].copy();
+                        }
+                    }
+                    else
+                    {
+                        req.path = url::temp_decode(header_parts[1], PATH)!!.new_ascii_to_lower();
+                    }
+                case header_l.contains("content-length"):
                     req.content_length = header.tsplit(":")[1].trim().to_ulong()!!;
-                case header.contains("content-type"):
+                case header_l.contains("content-type"):
                     req.content_type = header.tsplit(":")[1].trim().copy();
-                case header.contains("accept-encoding"):
+                case header_l.contains("accept-encoding"):
                     req.accept_encoding = header.tsplit(":")[1].trim().copy();
-                case header.contains("accept"):
+                case header_l.contains("accept"):
                     req.accept = header.tsplit(":")[1].trim().copy();
-                case header.contains("connection"):
+                case header_l.contains("connection"):
                     req.connection = header.tsplit(":")[1].trim().copy();
                 default:
                     String[] header_parts = header.tsplit(":");
@@ -185,16 +207,65 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
     Http11Task *task = mem::new(Http11Task);
     task.new_init(self.sock, self.req_info, self.server);
 
-    String key = string::tformat("%s %s", self.req_info.method.temp_ascii_to_upper(), self.req_info.path);
-    if (try func = self.server.user_funcs[key])
+    if (try func = self.server.user_funcs[string::tformat("%s %s", self.req_info.method, self.req_info.path)])
     {
         task.proc.func = func;
     }
     else
     {
-        // if path does not exist at all, the response should be 400, improv this later
-        // check supported methods and send in response as Allow header
-        task.make_response(405, reason:"Method not Allowed");
+        List(<String>) allowed_methods;
+        defer allowed_methods.free();
+        foreach (key : self.server.user_funcs.tcopy_keys())
+        {
+            String[] parts = key.tsplit(" ");
+            String[] path = parts[1].tsplit("/");
+            String[] req_path = self.req_info.path.tsplit("/");
+            if (path.len != req_path.len) continue;
+            bool match = true;
+            ParamTuples pairs;
+            defer pairs.free();
+            foreach (idx, part : path)
+            {
+                if (part == req_path[idx]) continue;
+                if (part[0] == '{' && part[^1] == '}')
+                {
+                    pairs.push({.first=part[1..^2].tcopy(), .second=req_path[idx]});
+                    continue;
+                }
+                match = false;
+                break;
+            }
+            if (match)
+            {
+                if (parts[0] == self.req_info.method)
+                {
+                    // add params
+                    foreach (&p : pairs) self.req_info.params[p.first.temp_ascii_to_lower()] = p.second.copy();
+                    // set func
+                    task.proc.func = self.server.user_funcs[key]!!;
+                    break;
+                }
+                else
+                {
+                    allowed_methods.push(parts[0]);
+                    pairs.clear();
+                }
+            }
+        }
+
+        if (task.proc.func == null)
+        {
+            if (allowed_methods.size)
+            {
+                // check supported methods and send in response as Allow header
+                String allow = string::tformat("Allow: %s", string::join_new(allowed_methods.array_view(), ",", allocator::temp()));
+                task.make_response(405, reason:"Method not Allowed", headers: {allow});
+            }
+            else
+            {
+                task.make_response(400, reason:"Not Found");
+            }
+        }
     }
 
     self.server.tasks.push((Task)task);
