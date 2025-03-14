@@ -214,8 +214,8 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
     else
     {
         List(<String>) allowed_methods;
-        defer allowed_methods.free();
-        foreach (key : self.server.user_funcs.tcopy_keys())
+        allowed_methods.tinit();
+        foreach (key : self.server.ordered_paths)
         {
             String[] parts = key.tsplit(" ");
             String[] path = parts[1].tsplit("/");
@@ -223,11 +223,11 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
             if (path.len != req_path.len) continue;
             bool match = true;
             ParamTuples pairs;
-            defer pairs.free();
+            pairs.tinit();
             foreach (idx, part : path)
             {
                 if (part == req_path[idx]) continue;
-                if (part[0] == '{' && part[^1] == '}')
+                if (part.len > 0 && part[0] == '{' && part[^1] == '}')
                 {
                     pairs.push({.first=part[1..^2].tcopy(), .second=req_path[idx]});
                     continue;

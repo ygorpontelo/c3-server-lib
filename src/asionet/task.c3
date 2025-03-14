@@ -25,6 +25,8 @@ fn void TaskLoop.new_init(&self, usz initial_task_capacity, Duration poll_durati
     self.tasks.init(mem, initial_capacity:initial_task_capacity);
 }
 
+fn void TaskLoop.free(&self) @inline => self.tasks.free();
+
 fn void TaskLoop.push(&self, Task t) @inline => self.tasks.push(t);
 
 fn void TaskLoop.poll_tasks(&self)

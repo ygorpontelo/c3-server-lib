@@ -33,7 +33,8 @@ fn void main(String[] args)
     server.listen_to(&server_sock);
 
     server.add_endpoint(Method.POST, "/ping", &test_process);
-    server.add_endpoint(Method.POST, "/ping/{id}", &test_process);
+    server.add_endpoint(Method.POST, "/ping/{id}/", &test_process);
+    server.add_endpoint(Method.POST, "/ping/{id}/{other}", &test_process);
 
     server.run_forever();
 }

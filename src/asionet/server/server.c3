@@ -3,6 +3,7 @@ import std::io;
 import std::net;
 import std::time;
 import std::collections;
+import std::sort;
 
 
 struct TcpAcceptTask (Task)
@@ -67,6 +68,7 @@ struct Server
     TcpServerSocket *sock;
     TaskLoop tasks;
     UserFnMap user_funcs;
+    String[] ordered_paths;
     uint timeout;
 }
 
@@ -77,6 +79,15 @@ fn Server* Server.init(&self, usz initial_task_capacity=1024, uint timeout=5)
     self.tasks.new_init(initial_task_capacity, time::SEC);
     self.user_funcs.init(mem);
     return self;
+}
+
+fn void Server.free(&self)
+{
+    self.sock.destroy()!!;
+    mem::free(self.sock);
+    self.tasks.free();
+    self.user_funcs.free();
+    mem::free(self.ordered_paths);
 }
 
 fn void Server.listen_to(&self, TcpServerSocket *server_sock)
@@ -96,6 +107,9 @@ fn bool Server.add_endpoint(&self, Method met, String endpoint, AssociatedFunc f
 
 fn void Server.run_forever(&self)
 {
+    self.ordered_paths = self.user_funcs.copy_keys();
+    sort::quicksort(self.ordered_paths, fn int (String a, String b) => a.len-b.len);
+
     bool run = true;
     while (run)
     {
