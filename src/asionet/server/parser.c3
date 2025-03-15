@@ -215,11 +215,11 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
     {
         List(<String>) allowed_methods;
         allowed_methods.tinit();
+        String[] req_path = self.req_info.path.tsplit("/");
         foreach (key : self.server.ordered_paths)
         {
             String[] parts = key.tsplit(" ");
             String[] path = parts[1].tsplit("/");
-            String[] req_path = self.req_info.path.tsplit("/");
             if (path.len != req_path.len) continue;
             bool match = true;
             ParamTuples pairs;
