@@ -77,6 +77,7 @@ fn Server* Server.init(&self, usz initial_task_capacity=1024, uint timeout=5)
     self.timeout=timeout;
     self.tasks.new_init(initial_task_capacity, time::SEC);
     self.user_funcs.init(mem);
+    self.ordered_paths.init(mem);
     return self;
 }
 

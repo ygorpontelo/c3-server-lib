@@ -17,6 +17,8 @@ struct ArgMap
     HashMap{String, String} args;
 }
 
+fn void ArgMap.init(&self, Allocator alloc) => self.args.init(alloc);
+
 fn String? ArgMap.get(&self, String key) @operator([])
 {
     String keylower = key.to_lower_copy(mem);
@@ -56,6 +58,12 @@ struct ParsedReq
     ulong content_length;
     ArgMap additional_headers;
     ArgMap params;
+}
+
+fn void ParsedReq.init(&self)
+{
+    self.additional_headers.init(mem);
+    self.params.init(mem);
 }
 
 macro ParsedReq.set_defaults(&self)
@@ -146,6 +154,7 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
         if (!self.buffer.str_view().contains("\r\n\r\n")) return;
 
         ParsedReq *req = mem::new(ParsedReq);
+        req.init();
         // parse and save info
         String[] parts = self.buffer.tcopy_str().tsplit("\r\n\r\n");
         String[] headers = parts[0].tsplit("\r\n");
