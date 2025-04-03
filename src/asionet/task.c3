@@ -15,7 +15,7 @@ interface Task
 
 struct TaskLoop
 {
-    List(<Task>) tasks;
+    List{Task} tasks;
     Duration poll_duration;
 }
 
@@ -31,7 +31,7 @@ fn void TaskLoop.push(&self, Task t) @inline => self.tasks.push(t);
 
 fn void TaskLoop.poll_tasks(&self)
 {
-    List(<Poll>) polling;
+    List{Poll} polling;
     polling.init(mem, initial_capacity:self.tasks.size);
     defer polling.free();
     foreach (&task : self.tasks) polling.push(task.get_poll());

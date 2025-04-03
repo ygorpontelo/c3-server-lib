@@ -49,8 +49,8 @@ fn void TcpAcceptTask.free(&self) @dynamic {}
 
 // ------ Server itself
 
-def UserFnMap = HashMap(<String, AssociatedFunc>);
-def AssociatedFunc = fn void (Task);
+alias UserFnMap = HashMap{String, AssociatedFunc};
+alias AssociatedFunc = fn void (Task);
 
 enum Method : char (inline String s)
 {
@@ -67,7 +67,7 @@ struct Server
     TcpServerSocket *sock;
     TaskLoop tasks;
     UserFnMap user_funcs;
-    List(<String>) ordered_paths;
+    List{String} ordered_paths;
     uint timeout;
 }
 
@@ -86,7 +86,7 @@ fn void Server.free(&self)
     mem::free(self.sock);
     self.tasks.free();
     self.user_funcs.free();
-    foreach (&s : self.ordered_paths) s.free();
+    foreach (&s : self.ordered_paths) s.free(mem);
     self.ordered_paths.free();
 }
 
@@ -100,7 +100,7 @@ fn void Server.listen_to(&self, TcpServerSocket *server_sock)
 
 fn bool Server.add_endpoint(&self, Method met, String endpoint, AssociatedFunc func)
 {
-    String key = string::new_format("%s %s", met, endpoint);
+    String key = string::format(mem, "%s %s", met, endpoint);
     self.ordered_paths.push(key);
     return self.user_funcs[key] = func;
 }

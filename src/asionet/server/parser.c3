@@ -14,33 +14,33 @@ import std::collections;
 
 struct ArgMap
 {
-    HashMap(<String, String>) args;
+    HashMap{String, String} args;
 }
 
-fn String! ArgMap.get(&self, String key) @operator([])
+fn String? ArgMap.get(&self, String key) @operator([])
 {
-    String keylower = key.new_ascii_to_lower();
-    defer keylower.free();
+    String keylower = key.to_lower_copy(mem);
+    defer keylower.free(mem);
     return self.args[keylower]!;
 }
 
 fn bool ArgMap.set(&self, String key, String value) @operator([]=)
 {
-    String keylower = key.new_ascii_to_lower();
-    defer keylower.free();
+    String keylower = key.to_lower_copy(mem);
+    defer keylower.free(mem);
     return self.args[keylower] = value;
 }
 
 fn bool ArgMap.has_key(&self, String key)
 {
-    String keylower = key.new_ascii_to_lower();
-    defer keylower.free();
+    String keylower = key.to_lower_copy(mem);
+    defer keylower.free(mem);
     return self.args.has_key(keylower);
 }
 
 fn void ArgMap.free(&self)
 {
-    self.args.@each(; String key, String value){ value.free(); };
+    self.args.@each(; String key, String value){ value.free(mem); };
     self.args.free();
 }
 
@@ -60,19 +60,19 @@ struct ParsedReq
 
 macro ParsedReq.set_defaults(&self)
 {
-    if (!self.connection) self.connection = string::new_format("keep-alive");
-    if (!self.content_type) self.content_type = string::new_format("text/plain; charset=utf-8");
+    if (!self.connection) self.connection = string::format(mem, "keep-alive");
+    if (!self.content_type) self.content_type = string::format(mem, "text/plain; charset=utf-8");
 }
 
 fn void ParsedReq.free(&self)
 {
-    self.method.free();
-    self.path.free();
-    self.data.free();
-    self.accept.free();
-    self.accept_encoding.free();
-    self.connection.free();
-    self.content_type.free();
+    self.method.free(mem);
+    self.path.free(mem);
+    self.data.free(mem);
+    self.accept.free(mem);
+    self.accept_encoding.free(mem);
+    self.connection.free(mem);
+    self.content_type.free(mem);
     self.additional_headers.free();
     self.params.free();
 }
@@ -110,15 +110,15 @@ macro ParseTask.parse_error(&self, String err_msg="")
     if(err_msg) io::printn(err_msg);
 }
 
-def ParamTuples = List(<Tuple(<String, String>)>);
+alias ParamTuples = List{Tuple{String, String}};
 
 fn void ParseTask.process(&self, PollEvents revents) @dynamic
 {
     if (catch excuse = asionet::read_sock(self.sock, &self.buffer))
     {
-        if (excuse != IoError.WOULD_BLOCK)
+        if (excuse != io::WOULD_BLOCK)
         {
-            String err = excuse != ASock.EOF ? string::tformat("Read Socket err: %s", excuse) : "";
+            String err = excuse != io::EOF ? string::tformat("Read Socket err: %s", excuse) : "";
             self.parse_error(err);
             return;
         }
@@ -134,7 +134,7 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
             if (!self.buffer.str_view().contains("\r\n")) return;
             String start_line = self.buffer.str_view().tsplit("\r\n")[0];
             String[] sl_parts = start_line.tsplit(" ");
-            if (sl_parts.len != 3 || !sl_parts[2].temp_ascii_to_lower().contains("http/1.1"))
+            if (sl_parts.len != 3 || !sl_parts[2].to_lower_copy(tmem).contains("http/1.1"))
             {
                 self.parse_error("Start line is wrong");
                 return;
@@ -154,43 +154,43 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
 
         foreach (header : headers)
         {
-            String header_l = header.temp_ascii_to_lower();
+            String header_l = header.to_lower_copy(tmem);
             switch
             {
                 case header_l.contains("http/1.1"):
                     String[] header_parts = header.tsplit(" ");
-                    req.method = header_parts[0].temp_ascii_to_upper().copy();
+                    req.method = header_parts[0].to_upper_copy(mem);
                     // parse query params
                     // need to handle decoding errs
                     if (header_parts[1].contains("?"))
                     {
                         String[] pp = header_parts[1].tsplit("?");
-                        req.path = url::temp_decode(pp[0], PATH)!!.new_ascii_to_lower();
-                        String[] params = url::temp_decode(pp[1], QUERY)!!.tsplit("&");
+                        req.path = url::tdecode(pp[0], PATH)!!.to_lower_copy(mem);
+                        String[] params = url::tdecode(pp[1], QUERY)!!.tsplit("&");
                         io::printn(params);
                         foreach (&p : params)
                         {
                             String[] param_parts = p.tsplit("=");
-                            req.params[param_parts[0]] = param_parts[1].copy();
+                            req.params[param_parts[0]] = param_parts[1].copy(mem);
                         }
                     }
                     else
                     {
-                        req.path = url::temp_decode(header_parts[1], PATH)!!.new_ascii_to_lower();
+                        req.path = url::tdecode(header_parts[1], PATH)!!.to_lower_copy(mem);
                     }
                 case header_l.contains("content-length"):
                     req.content_length = header.tsplit(":")[1].trim().to_ulong()!!;
                 case header_l.contains("content-type"):
-                    req.content_type = header.tsplit(":")[1].trim().copy();
+                    req.content_type = header.tsplit(":")[1].trim().copy(mem);
                 case header_l.contains("accept-encoding"):
-                    req.accept_encoding = header.tsplit(":")[1].trim().copy();
+                    req.accept_encoding = header.tsplit(":")[1].trim().copy(mem);
                 case header_l.contains("accept"):
-                    req.accept = header.tsplit(":")[1].trim().copy();
+                    req.accept = header.tsplit(":")[1].trim().copy(mem);
                 case header_l.contains("connection"):
-                    req.connection = header.tsplit(":")[1].trim().copy();
+                    req.connection = header.tsplit(":")[1].trim().copy(mem);
                 default:
                     String[] header_parts = header.tsplit(":");
-                    req.additional_headers[header_parts[0].trim()] = header_parts[1].trim().copy();
+                    req.additional_headers[header_parts[0].trim()] = header_parts[1].trim().copy(mem);
             }
         }
         req.set_defaults();
@@ -201,7 +201,7 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
     if (self.buffer.len() < self.req_info.content_length) return;
 
     // if all expected data is read then format data if any
-    self.req_info.data = self.buffer.copy_str();
+    self.req_info.data = self.buffer.copy_str(mem);
 
     // given parsed req, select task (only http 1.1 for now)
     Http11Task *task = mem::new(Http11Task);
@@ -213,7 +213,7 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
     }
     else
     {
-        List(<String>) allowed_methods;
+        List{String} allowed_methods;
         allowed_methods.tinit();
         String[] req_path = self.req_info.path.tsplit("/");
         foreach (key : self.server.ordered_paths)
@@ -240,7 +240,7 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
                 if (parts[0] == self.req_info.method)
                 {
                     // add params
-                    foreach (&p : pairs) self.req_info.params[p.first.temp_ascii_to_lower()] = p.second.copy();
+                    foreach (&p : pairs) self.req_info.params[p.first.to_lower_copy(tmem)] = p.second.copy(mem);
                     // set func
                     task.proc.func = self.server.user_funcs[key]!!;
                     break;
@@ -258,7 +258,7 @@ fn void ParseTask.process(&self, PollEvents revents) @dynamic
             if (allowed_methods.size)
             {
                 // check supported methods and send in response as Allow header
-                String allow = string::tformat("Allow: %s", string::join_new(allowed_methods.array_view(), ",", allocator::temp()));
+                String allow = string::tformat("Allow: %s", string::join(tmem, allowed_methods.array_view(), ","));
                 task.make_response(405, reason:"Method not Allowed", headers: {allow});
             }
             else

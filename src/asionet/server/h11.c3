@@ -5,7 +5,7 @@ import std::time;
 import std::collections;
 
 
-def CleanFunc = fn void (Http11Task*);
+alias CleanFunc = fn void (Http11Task*);
 
 struct Http11Task (Task)
 {
@@ -37,7 +37,7 @@ fn void Http11Task.process(&self, PollEvents revents) @dynamic
     {
         if (catch excuse = asionet::write_sock(self.sock, &self.buffer))
         {
-            if (excuse != IoError.WOULD_BLOCK)
+            if (excuse != io::WOULD_BLOCK)
             {
                 self.timeout=true;
                 // log error
@@ -138,8 +138,7 @@ fn void Http11Task.make_response(
     self.buffer.clear();
     if (headers.len)
     {
-        String joined_headers = string::join_new(headers, "\r\n");
-        defer joined_headers.free();
+        String joined_headers = string::join(tmem, headers, "\r\n");
         self.buffer.append_chars(
             string::tformat(
                 "HTTP/1.1 %d %s\r\ncontent-length: %d\r\nconnection: %s\r\n%s\r\n\r\n%s",
